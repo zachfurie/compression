@@ -14,12 +14,6 @@ var outPath = "enwik8_encoded"
 var freq = map[byte]int{}
 var dict = map[byte][]int{}
 
-type treeNode struct {
-	value byte
-	left  *treeNode
-	right *treeNode
-}
-
 type huffmanNode struct {
 	frequency int
 	value     byte
