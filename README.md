@@ -5,7 +5,7 @@ I am learning compression algorithms and implementing them in Go. Suggestions ar
 
 **Status:**
 * Huffman: *complete*, but currently does not save tree between runs, so can only encode and decode in same run
-* Context Tree Weighing: *incomplete*
+* Context Tree Weighting: *incomplete*
 
 **Sources:**
 * CTW: https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.14.352&rep=rep1&type=pdf
