@@ -1,4 +1,4 @@
-package main
+package Huffman
 
 import (
 	"fmt"
@@ -195,7 +195,8 @@ func decode(outPath string, hufT *huffmanNode) (string, int) {
 	}
 	fmt.Println("Compressed Bytes: ", len(bytes))
 	fmt.Println("Compressed Bits: ", len(bytes)*8)
-	//intData := make([]int, len(bytes)*8) //readBits() returns a slice of 8 ints, so it is easier to initialize intData without specifying length and just keep appending the list to intData. However, if you want to initialize intData with the correct length, you would have to assign each int returned by readBits to the correct index in intData
+	//intData := make([]int, 0, len(bytes)*8) //NOTE: this should work to preallocate the required memory while still intilializing a slice of length 0
+	//readBits() returns a slice of 8 ints, so it is easier to initialize intData without specifying length and just keep appending the list to intData. However, if you want to initialize intData with the correct length, you would have to assign each int returned by readBits to the correct index in intData
 	intData := []int{}
 	for _, x := range bytes {
 		intData = append(intData, readBits(int(x))...)
@@ -217,7 +218,9 @@ func decode(outPath string, hufT *huffmanNode) (string, int) {
 	return string(data), len(bytes)
 }
 
-func main() {
+func HuffMain(fp string, op string) {
+	filepath = fp
+	outPath = op
 	bytes, err := os.ReadFile(filepath)
 	if err != nil {
 		log.Fatal(err)
