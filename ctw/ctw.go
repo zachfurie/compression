@@ -90,7 +90,7 @@ func updateProb(n *node, update uint8) {
 	} else {
 		updateProb(n.left, update)
 		updateProb(n.right, update)
-		n.p = 0.5*newP + 0.5*n.left.p*n.right.p // Feel like this should be left + right instead of left * right...?
+		n.p = 0.5*newP + 0.5*n.left.p*n.right.p
 	}
 }
 
@@ -115,20 +115,15 @@ func updateCount(n *node, update uint8) {
 	}
 }
 
-var init_leaf_prob = float64(1) / float64(uint8(1)<<Depth) //0.125 // 1/8 even chance for each leaf node (assuming depth = 3).
-
+// All probabilities should be initialized to 1.
 func initializeNodes(d int, code uint8) *node {
-	newNode := node{code: code, c0: 1, c1: 1, d: d, p: 0.0}
+	newNode := node{code: code, c0: 0, c1: 0, d: d, p: 1.0}
 	if d < Depth {
 		rcode := code << 1
 		lcode := rcode | uint8(1)
 		newNode.left = initializeNodes(d+1, lcode)
 		newNode.right = initializeNodes(d+1, rcode)
 		newNode.p = newNode.left.p + newNode.right.p
-	} else {
-		newNode.p = init_leaf_prob
-		newNode.c0 = 1
-		newNode.c1 = 1
 	}
 	return &newNode
 }
@@ -162,11 +157,8 @@ func Encode(fp string, op string) {
 	for i, bt := range bytes {
 		bits := getBits(bt)
 		for _, bit := range bits {
-			// Update window CHECK
-			// Update counts CHECK
-			// Update probabilities CHECK
-			// Arithmetic encoding
 			// Do you update probabilities before or after encoding step?
+			// Probably doesnt matter as long as you do it the same order in decoder
 			updateWin(bit)
 			updateCount(root, window)
 			updateProb(root, bit)
