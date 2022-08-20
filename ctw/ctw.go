@@ -47,37 +47,13 @@ type node struct {
 	//parent *node   //possibly unneccessary
 }
 
-//right is the child whos code is this code + 0, and left has code that is this code + 1
-// c0 must be >= the sum of the c0 values of the node's children (and same with c1)
-
+// pop off oldest bit in window, add a new bit from source data
 func updateWin(bit uint8) {
 	window <<= 1
 	window |= bit
 }
 
-// takes in a byte, returns two windows of length = 4 bits.
-// window size should be depth + 1, so currently this only works for depth=3
-// possibly wrong/useless
-// probably wrong/useless
-func nextWin(bt byte) (uint8, uint8) {
-	win1 := bt >> 4
-	win2 := bt & 8
-	return uint8(win1), uint8(win2)
-}
-
-// Get bits, update
-// also possibly wrong/useless
-func processWin(win uint8) int {
-	bits := make([]uint8, 4)
-	bits[0] = win & uint8(1)
-	bits[1] = win & uint8(2)
-	bits[2] = win & uint8(4)
-	bits[3] = win & uint8(8)
-
-	return 0
-}
-
-// Maybe not wrong/useless?
+// Get 8 bits from a byte (bits are represented by bytes with either one or zero nonzero bits)
 func getBits(bt byte) []uint8 {
 	bits := make([]uint8, 8)
 	bits[7] = bt & uint8(1)
@@ -88,6 +64,11 @@ func getBits(bt byte) []uint8 {
 	bits[2] = bt & uint8(32)
 	bits[1] = bt & uint8(64)
 	bits[0] = bt & uint8(128)
+	for i := range bits {
+		if bits[i] != uint8(0) {
+			bits[i] = uint8(1)
+		}
+	}
 	return bits
 }
 
@@ -100,26 +81,26 @@ func updateProb(n *node, update uint8) {
 	} else if update == 1 {
 		newP = n.p * (float64(n.c1) + 0.5) / (float64(n.c0) + float64(n.c1) + 1.0)
 	}
+	if newP != 0 {
+		fmt.Println(newP)
+	}
 
 	if n.d == Depth {
 		n.p = newP
 	} else {
 		updateProb(n.left, update)
 		updateProb(n.right, update)
-		n.p = 0.5*newP + 0.5*n.left.p*n.right.p
+		n.p = 0.5*newP + 0.5*n.left.p*n.right.p // Feel like this should be left + right instead of left * right...?
 	}
 }
 
-// Update prediction data for suffix nodes
+// Update prediction data for suffix nodes.
 func updateCount(n *node, update uint8) {
 	if n.d == Depth {
-		winMinusOne := window >> 1
-		if n.code == winMinusOne {
-			if update == 0 {
-				n.c0++
-			} else {
-				n.c1++
-			}
+		if update == 0 {
+			n.c0++
+		} else {
+			n.c1++
 		}
 	} else {
 		bit := update & uint8(128)
@@ -134,22 +115,33 @@ func updateCount(n *node, update uint8) {
 	}
 }
 
+var init_leaf_prob = float64(1) / float64(uint8(1)<<Depth) //0.125 // 1/8 even chance for each leaf node (assuming depth = 3).
+
 func initializeNodes(d int, code uint8) *node {
-	newNode := node{code: code, c0: 0, c1: 0, d: d, p: 0.0}
+	newNode := node{code: code, c0: 1, c1: 1, d: d, p: 0.0}
 	if d < Depth {
 		rcode := code << 1
 		lcode := rcode | uint8(1)
 		newNode.left = initializeNodes(d+1, lcode)
 		newNode.right = initializeNodes(d+1, rcode)
+		newNode.p = newNode.left.p + newNode.right.p
+	} else {
+		newNode.p = init_leaf_prob
+		newNode.c0 = 1
+		newNode.c1 = 1
 	}
 	return &newNode
 }
 
+// PROBLEM: PROBABILITIES ARE TOO SMALL TO REPRESENT WITH FLOAT64. NEED TO MANUALLY WRITE THEM INTO BYTES
 func Encode(fp string, op string) {
 	bytes, err := os.ReadFile(fp)
 	if err != nil {
 		log.Fatal(err)
 	}
+	bytes = bytes[:1000]
+	length := len(bytes)
+	llength := length / 20
 
 	// B( empty_sequence | window) := 0 , where B(x) = # of bits needed to encode x
 	// B is related to interval for window
@@ -158,7 +150,8 @@ func Encode(fp string, op string) {
 	interval[0] = B
 	interval[1] = 1
 	root := initializeNodes(0, uint8(0))
-	encodedInts := []float64{} // by "ints" I mean "intervals" ;)
+	recCheck(root, []int{})
+	//encodedInts := []float64{} // by "ints" I mean "intervals" ;)
 
 	// for _, bt := range bytes {
 	// 	win1, win2 := nextWin(bt)
@@ -166,19 +159,33 @@ func Encode(fp string, op string) {
 	// 	encodedInts = append(encodedInts, processWin(win2))
 	// }
 
-	for _, bt := range bytes {
+	for i, bt := range bytes {
 		bits := getBits(bt)
 		for _, bit := range bits {
 			// Update window CHECK
-			// Update counts CHECK (not really)
+			// Update counts CHECK
 			// Update probabilities CHECK
 			// Arithmetic encoding
+			// Do you update probabilities before or after encoding step?
 			updateWin(bit)
 			updateCount(root, window)
 			updateProb(root, bit)
-
+		}
+		if i%llength == 0 {
+			cnt := 5 * i / llength
+			fmt.Println(cnt, "%")
 		}
 	}
+	fmt.Println(100, "%")
+
+	// NOTE (8/20/22): Arithmetic encoding should return a SINGLE number representing the final probability value
+
+	//os.WriteFile(op,root.p (converted to byte array),os.ModeDevice)
+	fmt.Println("PROB: ", root.p)
+
+	recCheck(root, []int{})
+
+	return
 
 	// Implement Arithmetic encoding:
 
@@ -201,7 +208,27 @@ func Encode(fp string, op string) {
 	// OR is the window supposed to keep shifting 1 bit at a time, thus always using an interval of an interval of an interval
 	// This feels more right
 
-	fmt.Println(root, B, bytes, encodedInts) // get rid of red lines for unused variables
+	fmt.Println(root, B, bytes) // get rid of red lines for unused variables
 }
 
 //Weighted coding distribution = root.p
+
+//------------------------------------------
+//Bug Tests
+
+// Get path of leafnodes in huffman tree
+func recCheck(hufT *node, list []int) {
+	if hufT.d == Depth {
+		fmt.Println(&hufT, *hufT, list)
+		return
+	}
+	fmt.Println(&hufT, *hufT, list)
+	l := make([]int, len(list))
+	copy(l, list)
+	l = append(l, 1)
+	r := make([]int, len(list))
+	copy(r, list)
+	r = append(r, 0)
+	recCheck(hufT.left, l)
+	recCheck(hufT.right, r)
+}

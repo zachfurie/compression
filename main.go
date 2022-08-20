@@ -7,9 +7,9 @@ import (
 
 var filepath = "enwik8"
 var outPath = "enwik8_encoded"
-var alg = "huffman"
 
-//var alg = "ctw"
+// var alg = "huffman"
+var alg = "ctw"
 
 func main() {
 	if alg == "huffman" {
