@@ -129,6 +129,7 @@ func initializeNodes(d int, code uint8) *node {
 }
 
 // PROBLEM: PROBABILITIES ARE TOO SMALL TO REPRESENT WITH FLOAT64. NEED TO MANUALLY WRITE THEM INTO BYTES
+// SOLUTION: USE ASSYMETRIC NUMBER SYSTEMS ENCODING https://en.wikipedia.org/wiki/Asymmetric_numeral_systems
 func Encode(fp string, op string) {
 	bytes, err := os.ReadFile(fp)
 	if err != nil {
