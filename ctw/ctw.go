@@ -49,14 +49,6 @@ type node struct {
 	//parent *node   //possibly unneccessary
 }
 
-// Linked List representation of unisgned binary integer with arbitrary length.
-// Note: If the only operation I am doing is division, then I only need pointers in the direction of high->low.
-// If I am only doing multiplication, I only need pointers in the direction of low->high.
-type bytestream struct {
-	value uint8
-	next  *bytestream
-}
-
 // pop off oldest bit in window, add a new bit from source data
 func updateWin(bit uint8) {
 	window <<= 1
@@ -153,88 +145,6 @@ func initializeNodes(d int, code uint8) *node {
 		newNode.p = newNode.left.p + newNode.right.p
 	}
 	return &newNode
-}
-
-// Binary Multiplication
-// go by bit instead of by byte (for every bit in a, do b*bit)
-// product is a bytestream that also has a pointer to the current bit, which initializes at the lowest bit.
-//
-//	      |0 -> continue
-//	bit = {
-//	      |1 -> at current bit in product, add b. Then let new current bit be next bit
-//
-// since b is constant throughout the operation, can easily add just the right amount of bytes to the bytestream every time.
-// might be creating product.next.next.next, but still only need to pass product.next
-
-func bm(a *bytestream, b *bytestream, ove *bytestream, pro *bytestream) *bytestream {
-	bits := getBitsReverse(a.value)
-	for _, b := range bits {
-		bitshift(pro, false)
-		if b == 1 {
-			ba(pro, b)
-		}
-	}
-
-	// root := b
-	// product := a.value * b.value
-	// overflow := product - 255
-	// for root.next != nil {
-	// 	p := int(a.value) * int(b.value)
-	// 	o := p >> 8
-	// 	overflow += o
-	// }
-
-	// if overflow < 0 {
-	// 	overflow = 0
-	// }
-
-	// ba(a.next, overflow)
-	return pro
-}
-
-// Binary Addtition (a += b)
-func ba(a *bytestream, b *bytestream) *bytestream {
-	sum := int(a) + int(b)
-	
-	if b.value&uint8(128) != 0 {
-		bitshift(b.next, true)
-	} else {
-		bitshift(b.next, false)
-	}
-	b.value = b.value << 1
-	if overflow {
-		b.value = b.value + 1
-	}
-}
-	return a
-}
-
-// Binary division (Not using for now, seems easier to just keep the numerator and denominator as
-// separate variables to avoid long division. Will have to do it at some point though,
-// since it will be needed for decoding.) OR, maybe could just write a function that would allow
-// the decoder to compare two fractions without actuallly calculating their quotients.
-func bd(num *bytestream, den *bytestream, rem *bytestream, quo *bytestream) *bytestream {
-	//remainder := (int(num.value) * 2^8) % (int(den.value) * 2^8)
-	//quotient := num.value / den.value
-	// ...
-	return quo
-}
-
-func bitshift(b *bytestream, overflow bool) {
-	b.next = &bytestream{value: uint8(0)}
-	if b.value&uint8(128) != 0 {
-		bitshift(b.next, true)
-	} else {
-		bitshift(b.next, false)
-	}
-	b.value = b.value << 1
-	if overflow {
-		b.value = b.value + 1
-	}
-}
-
-func copyStream(in *bytestream, out *bytestream) *bytestream {
-	out.val
 }
 
 // PROBLEM: PROBABILITIES ARE TOO SMALL TO REPRESENT WITH FLOAT64. NEED TO MANUALLY WRITE THEM INTO BYTES
