@@ -47,6 +47,12 @@ type node struct {
 	//parent *node   //possibly unneccessary
 }
 
+// Linked List representation of unisgned binary integer with arbitrary length.
+type bytestream struct {
+	value uint8
+	next  *bytestream
+}
+
 // pop off oldest bit in window, add a new bit from source data
 func updateWin(bit uint8) {
 	window <<= 1
@@ -126,6 +132,17 @@ func initializeNodes(d int, code uint8) *node {
 		newNode.p = newNode.left.p + newNode.right.p
 	}
 	return &newNode
+}
+
+// Binary division (Not using for now, seems easier to just keep the numerator and denominator as
+// separate variables to avoid long division. Will have to do it at some point though,
+// since it will be needed for decoding.) OR, maybe could just write a function that would allow
+// the decoder to compare two fractions without actuallly calculating their quotients.
+func bd(num *bytestream, den *bytestream, rem *bytestream, quo *bytestream) *bytestream {
+	//remainder := (int(num.value) * 2^8) % (int(den.value) * 2^8)
+	//quotient := num.value / den.value
+	// ...
+	return quo
 }
 
 // PROBLEM: PROBABILITIES ARE TOO SMALL TO REPRESENT WITH FLOAT64. NEED TO MANUALLY WRITE THEM INTO BYTES
