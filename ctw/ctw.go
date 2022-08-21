@@ -3,6 +3,7 @@ package ctw
 import (
 	"fmt"
 	"log"
+	"math/big"
 	"os"
 )
 
@@ -38,16 +39,13 @@ var window = uint8(0)
 
 type node struct {
 	code  uint8
-	left  *node //adds 1 to code
-	right *node //adds 0 to code
-	c0    int   //count of 0s
-	c1    int   //count of 1s
-	num   *bytestream
-	den   *bytestream
-	d     int //depth
-	//p     float64 //weighted probability that next bit is 1
-	//parent *node   //possibly unneccessary
-}
+	left  *node      //adds 1 to code
+	right *node      //adds 0 to code
+	c0    *big.Float //count of 0s
+	c1    *big.Float //count of 1s
+	d     int        //depth
+	p     *big.Float //weighted probability of a sequence with c0 "0"s and c1 "1"s.
+} // Max ~2 billion for c0 and c1
 
 // pop off oldest bit in window, add a new bit from source data
 func updateWin(bit uint8) {
@@ -95,21 +93,26 @@ func getBitsReverse(bt byte) []uint8 {
 // Krichevsky–Trofimov estimator.
 // Recursively update probabilities of all nodes by calling this func on the root node.
 func updateProb(n *node, update uint8) {
-	newN := bytestream{}
-	newD := bytestream{}
-	//newP := 0.0
+	newP := big.NewFloat(0)
 	if update == 0 {
-		// Oops, looks like even if I get around coding division, I still have to code multiplication.
-		//newP = n.p * (float64(n.c0) + 0.5) / (float64(n.c0) + float64(n.c1) + 1.0)
+		x := big.NewFloat(0)
+		y := big.NewFloat(0)
+		newP.Quo((x.Add(n.c0, big.NewFloat(0.5))), y.Add(y.Add(n.c0, n.c1), big.NewFloat(1)))
 	} else if update == 1 {
-		//newP = n.p * (float64(n.c1) + 0.5) / (float64(n.c0) + float64(n.c1) + 1.0)
+		x := big.NewFloat(0)
+		y := big.NewFloat(0)
+		newP.Quo((x.Add(n.c1, big.NewFloat(0.5))), y.Add(y.Add(n.c0, n.c1), big.NewFloat(1)))
 	}
+	// Why is the probability different depending on if the most recent bit was a 1 or 0?
+	// Shouldnt it always be c1 / (c0 + c1) ?
 	if n.d == Depth {
 		n.p = newP
 	} else {
 		updateProb(n.left, update)
 		updateProb(n.right, update)
-		n.p = 0.5*newP + 0.5*n.left.p*n.right.p
+		x := big.NewFloat(0)
+		y := big.NewFloat(0)
+		n.p.Add(x.Mul(big.NewFloat(0.5), newP), y.Mul(y.Mul(n.left.p, n.right.p), big.NewFloat(0.5)))
 	}
 }
 
@@ -117,32 +120,32 @@ func updateProb(n *node, update uint8) {
 func updateCount(n *node, update uint8) {
 	if n.d == Depth {
 		if update == 0 {
-			n.c0++
+			n.c0.Add(n.c0, big.NewFloat(1))
 		} else {
-			n.c1++
+			n.c1.Add(n.c1, big.NewFloat(1))
 		}
 	} else {
 		bit := update & uint8(128)
 		newUpdate := update << 1
 		if bit == 0 {
 			updateCount(n.right, newUpdate)
-			n.c0 = n.left.c0 + n.right.c0
+			n.c0.Add(n.left.c0, n.right.c0)
 		} else {
 			updateCount(n.left, newUpdate)
-			n.c1 = n.left.c1 + n.right.c1
+			n.c1.Add(n.left.c1, n.right.c1)
 		}
 	}
 }
 
 // All probabilities should be initialized to 1.
 func initializeNodes(d int, code uint8) *node {
-	newNode := node{code: code, c0: 0, c1: 0, d: d, p: 1.0}
+	newNode := node{code: code, c0: big.NewFloat(0), c1: big.NewFloat(0), d: d, p: big.NewFloat(1)}
 	if d < Depth {
 		rcode := code << 1
 		lcode := rcode | uint8(1)
 		newNode.left = initializeNodes(d+1, lcode)
 		newNode.right = initializeNodes(d+1, rcode)
-		newNode.p = newNode.left.p + newNode.right.p
+		newNode.p.Add(newNode.left.p, newNode.right.p)
 	}
 	return &newNode
 }
@@ -166,10 +169,6 @@ func Encode(fp string, op string) {
 	interval[0] = B
 	interval[1] = 1
 	root := initializeNodes(0, uint8(0))
-	recCheck(root, []int{})
-
-	low := 0.0
-	high := 1.0
 
 	for i, bt := range bytes {
 		bits := getBits(bt)
@@ -179,16 +178,8 @@ func Encode(fp string, op string) {
 			// ACTUALLY, probably need to encode before updating, since you wont know the bit you are updating on until you decode it.
 			updateWin(bit)
 			updateCount(root, window)
-			testy := root.c1
-			test := root.p
 			updateProb(root, bit)
-			if testy < root.c1 {
-				low = low + (root.p * (high - low))
-				showIntervals(test, root.p)
-			} else {
-				high = high - (root.p * (high - low))
-				showIntervals(root.p, test)
-			}
+			//fmt.Println(*(root.p))
 		}
 		if i%llength == 0 {
 			cnt := 5 * i / llength
@@ -225,8 +216,9 @@ func Encode(fp string, op string) {
 
 	//os.WriteFile(op,root.p (converted to byte array),os.ModeDevice)
 	fmt.Println("PROB: ", root.p)
+	fmt.Println(root.p.MinPrec())
 
-	recCheck(root, []int{})
+	//recCheck(root, []int{})
 
 	return
 
