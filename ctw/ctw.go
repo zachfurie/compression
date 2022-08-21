@@ -82,6 +82,24 @@ func getBits(bt byte) []uint8 {
 	return bits
 }
 
+func getBitsReverse(bt byte) []uint8 {
+	bits := make([]uint8, 8)
+	bits[0] = bt & uint8(1)
+	bits[1] = bt & uint8(2)
+	bits[2] = bt & uint8(4)
+	bits[3] = bt & uint8(8)
+	bits[4] = bt & uint8(16)
+	bits[5] = bt & uint8(32)
+	bits[6] = bt & uint8(64)
+	bits[7] = bt & uint8(128)
+	for i := range bits {
+		if bits[i] != uint8(0) {
+			bits[i] = uint8(1)
+		}
+	}
+	return bits
+}
+
 // Krichevsky–Trofimov estimator.
 // Recursively update probabilities of all nodes by calling this func on the root node.
 func updateProb(n *node, update uint8) {
@@ -149,26 +167,46 @@ func initializeNodes(d int, code uint8) *node {
 // might be creating product.next.next.next, but still only need to pass product.next
 
 func bm(a *bytestream, b *bytestream, ove *bytestream, pro *bytestream) *bytestream {
-	root := b
-	product := a.value * b.value
-	overflow := product - 255
-	for root.next != nil {
-		p := int(a.value) * int(b.value)
-		o := p >> 8
-		overflow += o
+	bits := getBitsReverse(a.value)
+	for _, b := range bits {
+		bitshift(pro, false)
+		if b == 1 {
+			ba(pro, b)
+		}
 	}
 
-	if overflow < 0 {
-		overflow = 0
-	}
+	// root := b
+	// product := a.value * b.value
+	// overflow := product - 255
+	// for root.next != nil {
+	// 	p := int(a.value) * int(b.value)
+	// 	o := p >> 8
+	// 	overflow += o
+	// }
 
-	ba(a.next, overflow)
+	// if overflow < 0 {
+	// 	overflow = 0
+	// }
+
+	// ba(a.next, overflow)
 	return pro
 }
 
-// Binary Addtition
-func ba(a *bytestream) {
-
+// Binary Addtition (a += b)
+func ba(a *bytestream, b *bytestream) *bytestream {
+	sum := int(a) + int(b)
+	
+	if b.value&uint8(128) != 0 {
+		bitshift(b.next, true)
+	} else {
+		bitshift(b.next, false)
+	}
+	b.value = b.value << 1
+	if overflow {
+		b.value = b.value + 1
+	}
+}
+	return a
 }
 
 // Binary division (Not using for now, seems easier to just keep the numerator and denominator as
@@ -180,6 +218,23 @@ func bd(num *bytestream, den *bytestream, rem *bytestream, quo *bytestream) *byt
 	//quotient := num.value / den.value
 	// ...
 	return quo
+}
+
+func bitshift(b *bytestream, overflow bool) {
+	b.next = &bytestream{value: uint8(0)}
+	if b.value&uint8(128) != 0 {
+		bitshift(b.next, true)
+	} else {
+		bitshift(b.next, false)
+	}
+	b.value = b.value << 1
+	if overflow {
+		b.value = b.value + 1
+	}
+}
+
+func copyStream(in *bytestream, out *bytestream) *bytestream {
+	out.val
 }
 
 // PROBLEM: PROBABILITIES ARE TOO SMALL TO REPRESENT WITH FLOAT64. NEED TO MANUALLY WRITE THEM INTO BYTES
