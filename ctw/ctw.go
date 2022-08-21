@@ -38,16 +38,20 @@ var window = uint8(0)
 
 type node struct {
 	code  uint8
-	left  *node   //adds 1 to code
-	right *node   //adds 0 to code
-	c0    int     //count of 0s
-	c1    int     //count of 1s
-	p     float64 //weighted probability that next bit is 1
-	d     int     //depth
+	left  *node //adds 1 to code
+	right *node //adds 0 to code
+	c0    int   //count of 0s
+	c1    int   //count of 1s
+	num   *bytestream
+	den   *bytestream
+	d     int //depth
+	//p     float64 //weighted probability that next bit is 1
 	//parent *node   //possibly unneccessary
 }
 
 // Linked List representation of unisgned binary integer with arbitrary length.
+// Note: If the only operation I am doing is division, then I only need pointers in the direction of high->low.
+// If I am only doing multiplication, I only need pointers in the direction of low->high.
 type bytestream struct {
 	value uint8
 	next  *bytestream
@@ -78,19 +82,36 @@ func getBits(bt byte) []uint8 {
 	return bits
 }
 
+func getBitsReverse(bt byte) []uint8 {
+	bits := make([]uint8, 8)
+	bits[0] = bt & uint8(1)
+	bits[1] = bt & uint8(2)
+	bits[2] = bt & uint8(4)
+	bits[3] = bt & uint8(8)
+	bits[4] = bt & uint8(16)
+	bits[5] = bt & uint8(32)
+	bits[6] = bt & uint8(64)
+	bits[7] = bt & uint8(128)
+	for i := range bits {
+		if bits[i] != uint8(0) {
+			bits[i] = uint8(1)
+		}
+	}
+	return bits
+}
+
 // Krichevsky–Trofimov estimator.
 // Recursively update probabilities of all nodes by calling this func on the root node.
 func updateProb(n *node, update uint8) {
-	newP := 0.0
+	newN := bytestream{}
+	newD := bytestream{}
+	//newP := 0.0
 	if update == 0 {
-		newP = n.p * (float64(n.c0) + 0.5) / (float64(n.c0) + float64(n.c1) + 1.0)
+		// Oops, looks like even if I get around coding division, I still have to code multiplication.
+		//newP = n.p * (float64(n.c0) + 0.5) / (float64(n.c0) + float64(n.c1) + 1.0)
 	} else if update == 1 {
-		newP = n.p * (float64(n.c1) + 0.5) / (float64(n.c0) + float64(n.c1) + 1.0)
+		//newP = n.p * (float64(n.c1) + 0.5) / (float64(n.c0) + float64(n.c1) + 1.0)
 	}
-	if newP != 0 {
-		//fmt.Println(newP)
-	}
-
 	if n.d == Depth {
 		n.p = newP
 	} else {
@@ -134,6 +155,60 @@ func initializeNodes(d int, code uint8) *node {
 	return &newNode
 }
 
+// Binary Multiplication
+// go by bit instead of by byte (for every bit in a, do b*bit)
+// product is a bytestream that also has a pointer to the current bit, which initializes at the lowest bit.
+//
+//	      |0 -> continue
+//	bit = {
+//	      |1 -> at current bit in product, add b. Then let new current bit be next bit
+//
+// since b is constant throughout the operation, can easily add just the right amount of bytes to the bytestream every time.
+// might be creating product.next.next.next, but still only need to pass product.next
+
+func bm(a *bytestream, b *bytestream, ove *bytestream, pro *bytestream) *bytestream {
+	bits := getBitsReverse(a.value)
+	for _, b := range bits {
+		bitshift(pro, false)
+		if b == 1 {
+			ba(pro, b)
+		}
+	}
+
+	// root := b
+	// product := a.value * b.value
+	// overflow := product - 255
+	// for root.next != nil {
+	// 	p := int(a.value) * int(b.value)
+	// 	o := p >> 8
+	// 	overflow += o
+	// }
+
+	// if overflow < 0 {
+	// 	overflow = 0
+	// }
+
+	// ba(a.next, overflow)
+	return pro
+}
+
+// Binary Addtition (a += b)
+func ba(a *bytestream, b *bytestream) *bytestream {
+	sum := int(a) + int(b)
+	
+	if b.value&uint8(128) != 0 {
+		bitshift(b.next, true)
+	} else {
+		bitshift(b.next, false)
+	}
+	b.value = b.value << 1
+	if overflow {
+		b.value = b.value + 1
+	}
+}
+	return a
+}
+
 // Binary division (Not using for now, seems easier to just keep the numerator and denominator as
 // separate variables to avoid long division. Will have to do it at some point though,
 // since it will be needed for decoding.) OR, maybe could just write a function that would allow
@@ -143,6 +218,23 @@ func bd(num *bytestream, den *bytestream, rem *bytestream, quo *bytestream) *byt
 	//quotient := num.value / den.value
 	// ...
 	return quo
+}
+
+func bitshift(b *bytestream, overflow bool) {
+	b.next = &bytestream{value: uint8(0)}
+	if b.value&uint8(128) != 0 {
+		bitshift(b.next, true)
+	} else {
+		bitshift(b.next, false)
+	}
+	b.value = b.value << 1
+	if overflow {
+		b.value = b.value + 1
+	}
+}
+
+func copyStream(in *bytestream, out *bytestream) *bytestream {
+	out.val
 }
 
 // PROBLEM: PROBABILITIES ARE TOO SMALL TO REPRESENT WITH FLOAT64. NEED TO MANUALLY WRITE THEM INTO BYTES
