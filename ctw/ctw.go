@@ -1,6 +1,7 @@
 package ctw
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"math/big"
@@ -44,8 +45,22 @@ type node struct {
 	c0    *big.Float //count of 0s
 	c1    *big.Float //count of 1s
 	d     int        //depth
-	p     *big.Float //weighted probability of a sequence with c0 "0"s and c1 "1"s.
-} // Max ~2 billion for c0 and c1
+	p     *big.Float //weighted probability of a sequence with c0 "0"s and c1 "1"s
+	kt    *big.Float // Krichevsky–Trofimov estimate for p(x=0)
+} // In practice, probably don't need kt0 or kt1, but I have them there for now so I can graph them.
+
+// Inductive Loop:
+// Let x be the current bit
+// node.kt1 is the conditional probability P(x=1 | c0, c1)
+// node.p is the probability P(x=1, c0, c1) = P(x=1 | c0, c1) * P(c0,c1) = node.kt1 * P(c0,c1)
+// P(c0,c1) = P(x=1 | c0, c1 - 1) * P(c0,c1 - 1) OR P(x=0 | c0 - 1, c1) * P(c0 - 1,c1)
+
+// Error Check
+func check(err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
+}
 
 // pop off oldest bit in window, add a new bit from source data
 func updateWin(bit uint8) {
@@ -98,13 +113,13 @@ func updateProb(n *node, update uint8) {
 		x := big.NewFloat(0)
 		y := big.NewFloat(0)
 		newP.Quo((x.Add(n.c0, big.NewFloat(0.5))), y.Add(y.Add(n.c0, n.c1), big.NewFloat(1)))
+		n.kt.Mul(n.kt, newP)
 	} else if update == 1 {
 		x := big.NewFloat(0)
 		y := big.NewFloat(0)
 		newP.Quo((x.Add(n.c1, big.NewFloat(0.5))), y.Add(y.Add(n.c0, n.c1), big.NewFloat(1)))
+		n.kt.Mul(n.kt, newP)
 	}
-	// Why is the probability different depending on if the most recent bit was a 1 or 0?
-	// Shouldnt it always be c1 / (c0 + c1) ?
 	if n.d == Depth {
 		n.p = newP
 	} else {
@@ -112,14 +127,14 @@ func updateProb(n *node, update uint8) {
 		updateProb(n.right, update)
 		x := big.NewFloat(0)
 		y := big.NewFloat(0)
-		n.p.Add(x.Mul(big.NewFloat(0.5), newP), y.Mul(y.Mul(n.left.p, n.right.p), big.NewFloat(0.5)))
+		n.p.Add(x.Mul(big.NewFloat(0.5), n.kt), y.Mul(y.Mul(n.left.p, n.right.p), big.NewFloat(0.5)))
 	}
 }
 
 // Update prediction data for suffix nodes.
 func updateCount(n *node, update uint8) {
 	if n.d == Depth {
-		if update == 0 {
+		if update&uint8(16) == 0 {
 			n.c0.Add(n.c0, big.NewFloat(1))
 		} else {
 			n.c1.Add(n.c1, big.NewFloat(1))
@@ -129,57 +144,80 @@ func updateCount(n *node, update uint8) {
 		newUpdate := update << 1
 		if bit == 0 {
 			updateCount(n.right, newUpdate)
-			n.c0.Add(n.left.c0, n.right.c0)
+			//n.c0.Add(n.left.c0, n.right.c0)
+			n.c0.Add(n.c0, big.NewFloat(1))
 		} else {
 			updateCount(n.left, newUpdate)
-			n.c1.Add(n.left.c1, n.right.c1)
+			//n.c1.Add(n.left.c1, n.right.c1)
+			n.c1.Add(n.c1, big.NewFloat(1))
 		}
 	}
 }
 
 // All probabilities should be initialized to 1.
 func initializeNodes(d int, code uint8) *node {
-	newNode := node{code: code, c0: big.NewFloat(0), c1: big.NewFloat(0), d: d, p: big.NewFloat(1)}
+	newNode := node{code: code, c0: big.NewFloat(0), c1: big.NewFloat(0), d: d, p: big.NewFloat(1), kt: big.NewFloat(1)}
 	if d < Depth {
 		rcode := code << 1
 		lcode := rcode | uint8(1)
 		newNode.left = initializeNodes(d+1, lcode)
 		newNode.right = initializeNodes(d+1, rcode)
-		newNode.p.Add(newNode.left.p, newNode.right.p)
 	}
 	return &newNode
 }
 
 // PROBLEM: PROBABILITIES ARE TOO SMALL TO REPRESENT WITH FLOAT64. NEED TO MANUALLY WRITE THEM INTO BYTES
-// SOLUTION: USE ASSYMETRIC NUMBER SYSTEMS ENCODING https://en.wikipedia.org/wiki/Asymmetric_numeral_systems
+// POSSIBLE SOLUTION: USE ASSYMETRIC NUMBER SYSTEMS ENCODING https://en.wikipedia.org/wiki/Asymmetric_numeral_systems
 func Encode(fp string, op string) {
 	bytes, err := os.ReadFile(fp)
 	if err != nil {
 		log.Fatal(err)
 	}
-	bytes = bytes[:1000]
+	if len(bytes) > 25 {
+		bytes = bytes[:25]
+	}
 	length := len(bytes)
 	llength := length / 20
+	fmt.Println("Bytes: ", length)
 
 	// B( empty_sequence | window) := 0 , where B(x) = # of bits needed to encode x
 	// B is related to interval for window
 	// I'm guessing its needed for decoding
-	B := float64(0)
-	interval := make([]float64, 2)
-	interval[0] = B
-	interval[1] = 1
+
+	// Initialize nodes and do a dummy update on a "0" bit
 	root := initializeNodes(0, uint8(0))
+	updateProb(root, uint8(0))
+	updateCount(root, uint8(0))
+
+	second_to_last_p := big.NewFloat(0)
+
+	probsfile, err := os.Create("probs.txt")
+	check(err)
+	w := bufio.NewWriter(probsfile)
+
+	ktprobsfile, err := os.Create("ktprobs.txt")
+	check(err)
+	w2 := bufio.NewWriter(ktprobsfile)
+
+	bdfile, err := os.Create("bytedata.txt")
+	check(err)
+	w4 := bufio.NewWriter(bdfile)
 
 	for i, bt := range bytes {
 		bits := getBits(bt)
-		for _, bit := range bits {
-			// Do you update probabilities before or after encoding step?
-			// Probably doesnt matter as long as you do it the same order in decoder
-			// ACTUALLY, probably need to encode before updating, since you wont know the bit you are updating on until you decode it.
+		for j, bit := range bits {
 			updateWin(bit)
-			updateCount(root, window)
 			updateProb(root, bit)
-			//fmt.Println(*(root.p))
+			updateCount(root, window)
+			fmt.Fprintln(w, root.p)
+			fmt.Fprintln(w2, root.kt)
+			fmt.Fprintln(w4, big.NewInt(int64(bit)))
+			if i == length-1 && j == 6 {
+				second_to_last_p.Copy(root.p)
+			}
+			if i < 5 {
+				fmt.Println(root.kt, root.c0, root.c1)
+			}
 		}
 		if i%llength == 0 {
 			cnt := 5 * i / llength
@@ -187,6 +225,32 @@ func Encode(fp string, op string) {
 		}
 	}
 	fmt.Println(100, "%")
+	w.Flush()
+	w2.Flush()
+	w4.Flush()
+
+	// Determine Necessary Precision
+	old := second_to_last_p.Text(byte('f'), -1)
+	new := root.p.Text(byte('f'), -1)
+	fmt.Println(" --- ")
+	fmt.Println(old)
+	fmt.Println(new)
+	fmt.Println(" --- ")
+
+	oldb := []byte(old)
+	newb := []byte(new)
+	for i := range oldb {
+		if i == len(newb) {
+			break
+		}
+		if newb[i] != oldb[i] {
+			newb = newb[:i]
+			break
+		}
+	}
+	newi := big.NewFloat(0)
+	newi.UnmarshalText(newb)
+	fmt.Println(newi)
 
 	// NOTE (8/20/22): Arithmetic encoding should return a SINGLE number representing the final probability value
 	// Should also return the first x bits of the source data, where x=Depth. This is the information needed to get the decoder started.
@@ -215,17 +279,10 @@ func Encode(fp string, op string) {
 	// By repeating inductive step, all bits will be decoded.
 
 	//os.WriteFile(op,root.p (converted to byte array),os.ModeDevice)
-	fmt.Println("PROB: ", root.p)
-	fmt.Println(root.p.MinPrec())
+	fmt.Println("PROB: ", root.p, root.c0, root.c1)
 
 	//recCheck(root, []int{})
-
-	return
-
-	fmt.Println(root, B, bytes) // get rid of red lines for unused variables
 }
-
-//Weighted coding distribution = root.p
 
 //------------------------------------------
 //Bug Tests
@@ -245,34 +302,4 @@ func recCheck(hufT *node, list []int) {
 	r = append(r, 0)
 	recCheck(hufT.left, l)
 	recCheck(hufT.right, r)
-}
-
-// As of now, this mist be called by update function.
-// Could instead maybe implement this as a goroutine so it can just be called once from encode func.
-func showIntervals(l float64, h float64) {
-	low := int(l * 100)
-	high := int(h * 100)
-	if low < 1 && high < 1 {
-		return
-	}
-	fmt.Println("")
-	fmt.Print("|")
-	for x := range [100]byte{} {
-		if x == low {
-			fmt.Print("[")
-			continue
-		}
-		if x > low && x < high {
-			fmt.Print(" ")
-			continue
-		}
-		if x == high {
-			fmt.Print("]")
-			continue
-		}
-		fmt.Print("-")
-	}
-	fmt.Println("|")
-	fmt.Println(low, "       ", high)
-	fmt.Println(" ")
 }
