@@ -183,6 +183,7 @@ func Encode(fp string, op string) {
 	// B( empty_sequence | window) := 0 , where B(x) = # of bits needed to encode x
 	// B is related to interval for window
 	// I'm guessing its needed for decoding
+	lowerBound := big.NewFloat(0)
 
 	// Initialize nodes and do a dummy update on a "0" bit
 	root := initializeNodes(0, uint8(0))
@@ -199,6 +200,10 @@ func Encode(fp string, op string) {
 	check(err)
 	w2 := bufio.NewWriter(ktprobsfile)
 
+	lbfile, err := os.Create("lb.txt")
+	check(err)
+	w3 := bufio.NewWriter(lbfile)
+
 	bdfile, err := os.Create("bytedata.txt")
 	check(err)
 	w4 := bufio.NewWriter(bdfile)
@@ -209,8 +214,10 @@ func Encode(fp string, op string) {
 			updateWin(bit)
 			updateProb(root, bit)
 			updateCount(root, window)
+			lowerBound.Add(lowerBound, root.p)
 			fmt.Fprintln(w, root.p)
 			fmt.Fprintln(w2, root.kt)
+			fmt.Fprintln(w3, lowerBound)
 			fmt.Fprintln(w4, big.NewInt(int64(bit)))
 			if i == length-1 && j == 6 {
 				second_to_last_p.Copy(root.p)
@@ -227,6 +234,7 @@ func Encode(fp string, op string) {
 	fmt.Println(100, "%")
 	w.Flush()
 	w2.Flush()
+	w3.Flush()
 	w4.Flush()
 
 	// Determine Necessary Precision
