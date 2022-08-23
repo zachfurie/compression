@@ -222,9 +222,9 @@ func Encode(fp string, op string) {
 			if i == length-1 && j == 6 {
 				second_to_last_p.Copy(root.p)
 			}
-			if i < 5 {
-				fmt.Println(root.kt, root.c0, root.c1)
-			}
+			// if i < 5 {
+			// 	fmt.Println(bit, root.c0, root.c1)
+			// }
 		}
 		if i%llength == 0 {
 			cnt := 5 * i / llength
@@ -236,29 +236,6 @@ func Encode(fp string, op string) {
 	w2.Flush()
 	w3.Flush()
 	w4.Flush()
-
-	// Determine Necessary Precision
-	old := second_to_last_p.Text(byte('f'), -1)
-	new := root.p.Text(byte('f'), -1)
-	fmt.Println(" --- ")
-	fmt.Println(old)
-	fmt.Println(new)
-	fmt.Println(" --- ")
-
-	oldb := []byte(old)
-	newb := []byte(new)
-	for i := range oldb {
-		if i == len(newb) {
-			break
-		}
-		if newb[i] != oldb[i] {
-			newb = newb[:i]
-			break
-		}
-	}
-	newi := big.NewFloat(0)
-	newi.UnmarshalText(newb)
-	fmt.Println(newi)
 
 	// NOTE (8/20/22): Arithmetic encoding should return a SINGLE number representing the final probability value
 	// Should also return the first x bits of the source data, where x=Depth. This is the information needed to get the decoder started.
@@ -287,7 +264,8 @@ func Encode(fp string, op string) {
 	// By repeating inductive step, all bits will be decoded.
 
 	//os.WriteFile(op,root.p (converted to byte array),os.ModeDevice)
-	fmt.Println("PROB: ", root.p, root.c0, root.c1)
+	fmt.Println()
+	fmt.Printf("INTERVAL: [%v, %v)\n", lowerBound, big.NewFloat(0).Add(lowerBound, root.p))
 
 	//recCheck(root, []int{})
 }
