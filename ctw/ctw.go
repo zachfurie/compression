@@ -2,6 +2,7 @@ package ctw
 
 import (
 	"bufio"
+	ops "compression/ops"
 	"fmt"
 	"log"
 	"math/big"
@@ -173,9 +174,12 @@ func Encode(fp string, op string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if len(bytes) > 25 {
-		bytes = bytes[:25]
+
+	desiredLength := 1000
+	if len(bytes) > desiredLength {
+		bytes = bytes[:desiredLength]
 	}
+
 	length := len(bytes)
 	llength := length / 20
 	fmt.Println("Bytes: ", length)
@@ -267,7 +271,9 @@ func Encode(fp string, op string) {
 	fmt.Println()
 	fmt.Printf("INTERVAL: [%v, %v)\n", lowerBound, big.NewFloat(0).Add(lowerBound, root.p))
 
-	//recCheck(root, []int{})
+	binaryCode := ops.Binary_expansion(lowerBound, big.NewFloat(0).Add(lowerBound, root.p), []uint8{})
+	fmt.Println()
+	fmt.Println(binaryCode, len(binaryCode))
 }
 
 //------------------------------------------
