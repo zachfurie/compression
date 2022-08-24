@@ -20,6 +20,6 @@ func main() {
 	if alg == "ctw" {
 		ctw.Encode(filepath, outPath)
 		fmt.Println("DECODING NOW")
-		ctw.Decode(outPath, outOutPath)
+		//ctw.Decode(outPath, outOutPath)
 	}
 }

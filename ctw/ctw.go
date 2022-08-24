@@ -2,7 +2,7 @@ package ctw
 
 import (
 	"bufio"
-	ops "compression/ops"
+	// ops "compression/ops"
 	"fmt"
 	"log"
 	"math"
@@ -111,12 +111,12 @@ func getBitsReverse(bt byte) []uint8 {
 // Recursively update probabilities of all nodes by calling this func on the root node.
 func updateProb(n *node, update uint8) {
 	newP := big.NewFloat(0)
-	if update == 0 {
+	if update&uint8(1) == 0 {
 		x := big.NewFloat(0)
 		y := big.NewFloat(0)
 		newP.Quo((x.Add(n.c0, big.NewFloat(0.5))), y.Add(y.Add(n.c0, n.c1), big.NewFloat(1)))
 		n.kt.Mul(n.kt, newP)
-	} else if update == 1 {
+	} else {
 		x := big.NewFloat(0)
 		y := big.NewFloat(0)
 		newP.Quo((x.Add(n.c1, big.NewFloat(0.5))), y.Add(y.Add(n.c0, n.c1), big.NewFloat(1)))
@@ -125,32 +125,60 @@ func updateProb(n *node, update uint8) {
 	if n.d == Depth {
 		n.p = newP
 	} else {
-		updateProb(n.left, update)
-		updateProb(n.right, update)
+		bit := update & uint8(1)
+		newUpdate := update >> 1
+		if bit == 0 {
+			updateProb(n.right, newUpdate)
+		} else {
+			updateProb(n.left, newUpdate)
+		}
 		x := big.NewFloat(0)
 		y := big.NewFloat(0)
 		n.p.Add(x.Mul(big.NewFloat(0.5), n.kt), y.Mul(y.Mul(n.left.p, n.right.p), big.NewFloat(0.5)))
 	}
 }
 
+// func updateProbD(n *node, update uint8, a *big.Float, b *big.Float) uint8 {
+// 	newP := big.NewFloat(0)
+// 	if update == 0 {
+// 		x := big.NewFloat(0)
+// 		y := big.NewFloat(0)
+// 		newP.Quo((x.Add(n.c0, big.NewFloat(0.5))), y.Add(y.Add(n.c0, n.c1), big.NewFloat(1)))
+// 		n.kt.Mul(n.kt, newP)
+// 	} else if update == 1 {
+// 		x := big.NewFloat(0)
+// 		y := big.NewFloat(0)
+// 		newP.Quo((x.Add(n.c1, big.NewFloat(0.5))), y.Add(y.Add(n.c0, n.c1), big.NewFloat(1)))
+// 		n.kt.Mul(n.kt, newP)
+// 	}
+// 	if n.d == Depth {
+
+// 		n.p = newP
+// 	} else {
+// 		updateProb(n.left, update)
+// 		updateProb(n.right, update)
+// 		x := big.NewFloat(0)
+// 		y := big.NewFloat(0)
+// 		n.p.Add(x.Mul(big.NewFloat(0.5), n.kt), y.Mul(y.Mul(n.left.p, n.right.p), big.NewFloat(0.5)))
+// 	}
+// }
+
 // Update prediction data for suffix nodes.
 func updateCount(n *node, update uint8) {
 	if n.d == Depth {
-		if update&uint8(16) == 0 {
+		if update&uint8(1) == 0 {
 			n.c0.Add(n.c0, big.NewFloat(1))
 		} else {
 			n.c1.Add(n.c1, big.NewFloat(1))
 		}
 	} else {
-		bit := update & uint8(128)
-		newUpdate := update << 1
+		bit := update & uint8(1)
+		newUpdate := update >> 1
 		if bit == 0 {
 			updateCount(n.right, newUpdate)
-			//n.c0.Add(n.left.c0, n.right.c0)
 			n.c0.Add(n.c0, big.NewFloat(1))
 		} else {
 			updateCount(n.left, newUpdate)
-			//n.c1.Add(n.left.c1, n.right.c1)
 			n.c1.Add(n.c1, big.NewFloat(1))
 		}
 	}
@@ -176,7 +204,7 @@ func Encode(fp string, op string) {
 		log.Fatal(err)
 	}
 
-	desiredLength := 2
+	desiredLength := 1000
 	if len(bytes) > desiredLength {
 		bytes = bytes[:desiredLength]
 	}
@@ -189,6 +217,7 @@ func Encode(fp string, op string) {
 	// B is related to interval for window
 	// I'm guessing its needed for decoding
 	lowerBound := big.NewFloat(0)
+	upperBound := big.NewFloat(1)
 
 	// Initialize nodes and do a dummy update on a "0" bit
 	root := initializeNodes(0, uint8(0))
@@ -211,20 +240,27 @@ func Encode(fp string, op string) {
 	check(err)
 	w4 := bufio.NewWriter(bdfile)
 
+	totalp := big.NewFloat(0)
+
 	for i, bt := range bytes {
 		bits := getBits(bt)
 		for _, bit := range bits {
 			fmt.Fprintln(w, root.p)
-			fmt.Fprintln(w2, root.kt)
+			fmt.Fprintln(w2, upperBound)
 			fmt.Fprintln(w3, lowerBound)
 			fmt.Fprintln(w4, big.NewInt(int64(bit)))
 
 			updateWin(bit)
 			updateProb(root, bit)
 			updateCount(root, window)
-			if bit == 1 {
-				lowerBound.Add(lowerBound, root.p)
+			if bit == 0 {
+				lowerBound.Add(lowerBound, big.NewFloat(0).Mul(root.p, big.NewFloat(0).Add(upperBound, big.NewFloat(0).Mul(big.NewFloat(0), lowerBound))))
+				//lowerBound.Add(lowerBound, root.p)
+			} else if bit == 1 {
+				upperBound.Add(upperBound, big.NewFloat(0).Mul(big.NewFloat(0).Mul(root.p, big.NewFloat(0).Add(upperBound, big.NewFloat(0).Mul(big.NewFloat(0), lowerBound))), big.NewFloat(-1)))
+				//upperBound.Add(upperBound, big.NewFloat(0).Mul(big.NewFloat(-1), root.p))
 			}
+			totalp.Add(totalp, root.p)
 		}
 		// if i%llength == 0 {
 		// 	cnt := 5 * i / llength
@@ -237,6 +273,8 @@ func Encode(fp string, op string) {
 	w2.Flush()
 	w3.Flush()
 	w4.Flush()
+
+	fmt.Println("total p: ", totalp)
 
 	// NOTE (8/20/22): Arithmetic encoding should return a SINGLE number representing the final probability value
 	// Should also return the first x bits of the source data, where x=Depth. This is the information needed to get the decoder started.
@@ -266,15 +304,18 @@ func Encode(fp string, op string) {
 
 	//os.WriteFile(op,root.p (converted to byte array),os.ModeDevice)
 	fmt.Println()
-	fmt.Printf("INTERVAL: [%v, %v)\n", lowerBound, big.NewFloat(0).Add(lowerBound, root.p))
+	fmt.Printf("INTERVAL: [%v, %v)\n", lowerBound, upperBound) //big.NewFloat(0).Add(lowerBound, root.p))
 
-	binaryCode := ops.Binary_expansion(lowerBound, big.NewFloat(0).Add(lowerBound, root.p), []uint8{})
-	fmt.Println()
-	fmt.Println(binaryCode, len(binaryCode))
-	fmt.Println()
-	ret, n := binaryToFloat(binaryCode)
-	fmt.Println(ret, n)
-	os.WriteFile(op, binaryCode, os.ModeDevice)
+	// binaryCode := ops.Binary_expansion(lowerBound, big.NewFloat(0).Add(lowerBound, root.p), []uint8{})
+	// fmt.Println()
+	// fmt.Println(binaryCode, len(binaryCode))
+	// fmt.Println()
+	// ret, n := binaryToFloat(binaryCode)
+	// fmt.Println(ret, n)
+	// os.WriteFile(op, binaryCode, os.ModeDevice)
+
+	fmt.Println("!!!", root.c0, root.left.c0, root.right.c0)
+
 }
 
 func binaryToFloat(bc []uint8) (*big.Float, *big.Float) {
@@ -322,16 +363,6 @@ func Decode(fp string, op string) {
 	root := initializeNodes(0, uint8(0))
 	updateProb(root, uint8(0))
 	updateCount(root, uint8(0))
-
-	updateProb(root, uint8(0))
-	updateCount(root, uint8(0))
-	updateProb(root, uint8(0))
-	updateCount(root, uint8(0))
-	updateProb(root, uint8(1))
-	updateCount(root, uint8(1))
-	lowerBound.Add(lowerBound, root.p)
-	updateProb(root, uint8(1))
-	updateCount(root, uint8(1))
 
 	decfile, err := os.Create(op)
 	check(err)
@@ -427,15 +458,16 @@ func eval(l *big.Float, p *big.Float, a *big.Float, b *big.Float) uint8 {
 	// 	ret = 2
 	// } else ...
 	if h.Cmp(b) >= 0 {
-		ret = 0
-	} else if h.Cmp(a) < 0 {
 		ret = 1
+	} else if h.Cmp(a) < 0 {
+		ret = 0
 	} else {
 		//fmt.Printf("p: %v | a: %v | b: %v \n", p, a, b)
 		ret = 1 //3
 	}
 	fmt.Printf("lo: %-20v | hi: %-20v | a: %-20v | b: %-20v \n bit: %-20v \n", l, h, a, b, ret)
 	return ret
+
 }
 
 //------------------------------------------

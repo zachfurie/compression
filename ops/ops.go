@@ -1,7 +1,6 @@
 package ops
 
 import (
-	"fmt"
 	"math/big"
 )
 
@@ -13,7 +12,7 @@ func Binary_expansion(a *big.Float, b *big.Float, ret []uint8) []uint8 {
 	// |----0----|----1----|
 	// 0.0       0.5       1.0
 	//
-	fmt.Println(a, b)
+	//fmt.Println(a, b)
 	switch {
 	case a.Cmp(big.NewFloat(0.5)) == 1:
 		// |----0----|----1-[]-|
