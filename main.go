@@ -1,9 +1,9 @@
 package main
 
 import (
+	backup "compression/backup"
 	ctw "compression/ctw"
 	Huffman "compression/huffman"
-	"fmt"
 )
 
 var filepath = "enwik8"
@@ -19,7 +19,11 @@ func main() {
 	}
 	if alg == "ctw" {
 		ctw.Encode(filepath, outPath)
-		fmt.Println("DECODING NOW")
+		//fmt.Println("DECODING NOW")
 		//ctw.Decode(outPath, outOutPath)
+
+	}
+	if alg == "backup" {
+		backup.Encode(filepath, outPath)
 	}
 }

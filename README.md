@@ -15,3 +15,4 @@ I am learning compression algorithms and implementing them in Go. Suggestions ar
 * Get main.go file to be able to compare compression algs
 * Code a compression algorithm in Rust
 
+

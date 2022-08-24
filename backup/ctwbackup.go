@@ -1,4 +1,4 @@
-package ctw
+package backup
 
 import (
 	"bufio"
@@ -42,33 +42,19 @@ var window = uint8(0)
 
 type node struct {
 	code  uint8
-	left  *node   //adds 1 to code
-	right *node   //adds 0 to code
-	c0    float64 //count of 0s
-	c1    float64 //count of 1s
-	d     int     //depth
-	p     float64 //weighted probability of a sequence with c0 "0"s and c1 "1"s
-	kt    float64 // Krichevsky–Trofimov estimate for p(x=0)
+	left  *node      //adds 1 to code
+	right *node      //adds 0 to code
+	c0    *big.Float //count of 0s
+	c1    *big.Float //count of 1s
+	d     int        //depth
+	p     *big.Float //weighted probability of a sequence with c0 "0"s and c1 "1"s
+	kt    *big.Float // Krichevsky–Trofimov estimate for p(x=0)
 } // In practice, probably don't need kt0 or kt1, but I have them there for now so I can graph them.
 
 // Error Check
 func check(err error) {
 	if err != nil {
 		log.Fatal(err)
-	}
-}
-
-// logaddexp performs log(exp(x) + exp(y))
-func logaddexp(x, y float64) float64 {
-	tmp := x - y
-	if tmp > 0 {
-		return x + math.Log1p(math.Exp(-tmp))
-	} else if tmp <= 0 {
-		return y + math.Log1p(math.Exp(tmp))
-	} else {
-		// Nans, or infinities of the same sign involved
-		log.Printf("logaddexp %f %f", x, y)
-		return x + y
 	}
 }
 
@@ -118,15 +104,20 @@ func getBitsReverse(bt byte) []uint8 {
 // Krichevsky–Trofimov estimator.
 // Recursively update probabilities of all nodes by calling this func on the root node.
 func updateProb(n *node, update uint8) {
+	newP := big.NewFloat(0)
 	if update&uint8(1) == 0 {
-		n.kt += math.Log((n.c0 + float64(0.5))) - math.Log(n.c0+n.c1+float64(1))
-		n.c0 += 1
+		x := big.NewFloat(0)
+		y := big.NewFloat(0)
+		newP.Quo((x.Add(n.c0, big.NewFloat(0.5))), y.Add(y.Add(n.c0, n.c1), big.NewFloat(1)))
+		n.kt.Mul(n.kt, newP)
 	} else {
-		n.kt += math.Log((n.c1 + float64(0.5))) - math.Log(n.c0+n.c1+float64(1))
-		n.c1 += 1
+		x := big.NewFloat(0)
+		y := big.NewFloat(0)
+		newP.Quo((x.Add(n.c1, big.NewFloat(0.5))), y.Add(y.Add(n.c0, n.c1), big.NewFloat(1)))
+		n.kt.Mul(n.kt, newP)
 	}
 	if n.d == Depth {
-		n.p = n.kt
+		n.p = newP
 	} else {
 		bit := update & uint8(1)
 		newUpdate := update >> 1
@@ -135,23 +126,24 @@ func updateProb(n *node, update uint8) {
 		} else {
 			updateProb(n.left, newUpdate)
 		}
-		weight := 0.5
-		n.p = logaddexp(math.Log(weight)+n.kt, math.Log(1-weight)+n.left.p+n.right.p)
+		x := big.NewFloat(0)
+		y := big.NewFloat(0)
+		n.p.Add(x.Mul(big.NewFloat(0.5), n.kt), y.Mul(y.Mul(n.left.p, n.right.p), big.NewFloat(0.5)))
 	}
 }
 
-// func updateProbD(n *node, update uint8, a *float64, b *float64) uint8 {
-// 	newP := float64(0)
+// func updateProbD(n *node, update uint8, a *big.Float, b *big.Float) uint8 {
+// 	newP := big.NewFloat(0)
 // 	if update == 0 {
-// 		x := float64(0)
-// 		y := float64(0)
-// 		newP- math.Log((x.Add(n.c0, float64(0.5))), y.Add(y.Add(n.c0, n.c1), float64(1)))
-// 		n.kt+ math.Log(n.kt, newP)
+// 		x := big.NewFloat(0)
+// 		y := big.NewFloat(0)
+// 		newP.Quo((x.Add(n.c0, big.NewFloat(0.5))), y.Add(y.Add(n.c0, n.c1), big.NewFloat(1)))
+// 		n.kt.Mul(n.kt, newP)
 // 	} else if update == 1 {
-// 		x := float64(0)
-// 		y := float64(0)
-// 		newP- math.Log((x.Add(n.c1, float64(0.5))), y.Add(y.Add(n.c0, n.c1), float64(1)))
-// 		n.kt+ math.Log(n.kt, newP)
+// 		x := big.NewFloat(0)
+// 		y := big.NewFloat(0)
+// 		newP.Quo((x.Add(n.c1, big.NewFloat(0.5))), y.Add(y.Add(n.c0, n.c1), big.NewFloat(1)))
+// 		n.kt.Mul(n.kt, newP)
 // 	}
 // 	if n.d == Depth {
 
@@ -159,36 +151,36 @@ func updateProb(n *node, update uint8) {
 // 	} else {
 // 		updateProb(n.left, update)
 // 		updateProb(n.right, update)
-// 		x := float64(0)
-// 		y := float64(0)
-// 		n.p.Add(x+ math.Log(float64(0.5), n.kt), y+ math.Log(y+ math.Log(n.left.p, n.right.p), float64(0.5)))
+// 		x := big.NewFloat(0)
+// 		y := big.NewFloat(0)
+// 		n.p.Add(x.Mul(big.NewFloat(0.5), n.kt), y.Mul(y.Mul(n.left.p, n.right.p), big.NewFloat(0.5)))
 // 	}
 // }
 
 // Update prediction data for suffix nodes.
-// func updateCount(n *node, update uint8) {
-// 	if n.d == Depth {
-// 		if update&uint8(1) == 0 {
-// 			n.c0.Add(n.c0, float64(1))
-// 		} else {
-// 			n.c1.Add(n.c1, float64(1))
-// 		}
-// 	} else {
-// 		bit := update & uint8(1)
-// 		newUpdate := update >> 1
-// 		if bit == 0 {
-// 			updateCount(n.right, newUpdate)
-// 			n.c0.Add(n.c0, float64(1))
-// 		} else {
-// 			updateCount(n.left, newUpdate)
-// 			n.c1.Add(n.c1, float64(1))
-// 		}
-// 	}
-// }
+func updateCount(n *node, update uint8) {
+	if n.d == Depth {
+		if update&uint8(1) == 0 {
+			n.c0.Add(n.c0, big.NewFloat(1))
+		} else {
+			n.c1.Add(n.c1, big.NewFloat(1))
+		}
+	} else {
+		bit := update & uint8(1)
+		newUpdate := update >> 1
+		if bit == 0 {
+			updateCount(n.right, newUpdate)
+			n.c0.Add(n.c0, big.NewFloat(1))
+		} else {
+			updateCount(n.left, newUpdate)
+			n.c1.Add(n.c1, big.NewFloat(1))
+		}
+	}
+}
 
 // All probabilities should be initialized to 1.
 func initializeNodes(d int, code uint8) *node {
-	newNode := node{code: code, c0: float64(0), c1: float64(0), d: d, p: float64(1), kt: float64(1)}
+	newNode := node{code: code, c0: big.NewFloat(0), c1: big.NewFloat(0), d: d, p: big.NewFloat(1), kt: big.NewFloat(1)}
 	if d < Depth {
 		rcode := code << 1
 		lcode := rcode | uint8(1)
@@ -218,12 +210,13 @@ func Encode(fp string, op string) {
 	// B( empty_sequence | window) := 0 , where B(x) = # of bits needed to encode x
 	// B is related to interval for window
 	// I'm guessing its needed for decoding
-	lowerBound := float64(0)
-	upperBound := float64(1)
+	lowerBound := big.NewFloat(0)
+	upperBound := big.NewFloat(1)
 
 	// Initialize nodes and do a dummy update on a "0" bit
 	root := initializeNodes(0, uint8(0))
 	updateProb(root, uint8(0))
+	updateCount(root, uint8(0))
 
 	probsfile, err := os.Create("probs.txt")
 	check(err)
@@ -241,7 +234,7 @@ func Encode(fp string, op string) {
 	check(err)
 	w4 := bufio.NewWriter(bdfile)
 
-	totalp := float64(0)
+	totalp := big.NewFloat(0)
 
 	for i, bt := range bytes {
 		bits := getBits(bt)
@@ -253,12 +246,15 @@ func Encode(fp string, op string) {
 
 			updateWin(bit)
 			updateProb(root, window)
-			// if bit == 0 {
-			// 	lowerBound = logaddexp(lowerBound, root.p*logaddexp(upperBound, -1.0*lowerBound))
-			// } else if bit == 1 {
-			// 	upperBound = logaddexp(upperBound, -1.0*root.p*(upperBound-lowerBound))
-			// }
-			totalp += root.p
+			updateCount(root, window)
+			if bit == 0 {
+				lowerBound.Add(lowerBound, big.NewFloat(0).Mul(root.p, big.NewFloat(0).Add(upperBound, big.NewFloat(0).Mul(big.NewFloat(0), lowerBound))))
+				//lowerBound.Add(lowerBound, root.p)
+			} else if bit == 1 {
+				upperBound.Add(upperBound, big.NewFloat(0).Mul(big.NewFloat(0).Mul(root.p, big.NewFloat(0).Add(upperBound, big.NewFloat(0).Mul(big.NewFloat(0), lowerBound))), big.NewFloat(-1)))
+				//upperBound.Add(upperBound, big.NewFloat(0).Mul(big.NewFloat(-1), root.p))
+			}
+			totalp.Add(totalp, root.p)
 		}
 		if i%llength == 0 {
 			cnt := 5 * i / llength
@@ -301,9 +297,9 @@ func Encode(fp string, op string) {
 
 	//os.WriteFile(op,root.p (converted to byte array),os.ModeDevice)
 	fmt.Println()
-	fmt.Printf("INTERVAL: [%v, %v)\n", lowerBound, upperBound) //float64(0).Add(lowerBound, root.p))
+	fmt.Printf("INTERVAL: [%v, %v)\n", lowerBound, upperBound) //big.NewFloat(0).Add(lowerBound, root.p))
 
-	// binaryCode := ops.Binary_expansion(lowerBound, float64(0).Add(lowerBound, root.p), []uint8{})
+	// binaryCode := ops.Binary_expansion(lowerBound, big.NewFloat(0).Add(lowerBound, root.p), []uint8{})
 	// fmt.Println()
 	// fmt.Println(binaryCode, len(binaryCode))
 	// fmt.Println()
@@ -311,163 +307,161 @@ func Encode(fp string, op string) {
 	// fmt.Println(ret, n)
 	// os.WriteFile(op, binaryCode, os.ModeDevice)
 
-	fmt.Println("!!!", root.c0+root.c1, root.left.c0+root.left.c1, root.right.c0+root.right.c1)
-
+	fmt.Println("!!!", big.NewFloat(0).Add(root.c0, root.c1), big.NewFloat(0).Add(root.left.c0, root.left.c1), big.NewFloat(0).Add(root.right.c0, root.right.c1))
 	fmt.Println(root.p)
+}
+
+func binaryToFloat(bc []uint8) (*big.Float, *big.Float) {
+	// neighbors := big.NewFloat(1)
+	// ret := big.NewFloat(0)
+	// for i, x := range bc {
+	// 	neighbors.Quo(neighbors, big.NewFloat(10))
+	// 	if x == 1 {
+	// 		ret.Add(ret, big.NewFloat(math.Pow(2, -1.0*float64(i))))
+	// 	}
+	// }
+	// return ret, neighbors
+	a := big.NewFloat(0)
+	b := big.NewFloat(1)
+	for i, x := range bc {
+		if x == 0 {
+			b.Add(b, big.NewFloat(-1*(math.Pow(2, float64(-(i+1))))))
+		} else {
+			a.Add(a, big.NewFloat(math.Pow(2, float64(-(i+1)))))
+		}
+	}
+	return a, b
+}
+
+func Decode(fp string, op string) {
+	window = uint8(0)
+	bytes, err := os.ReadFile(fp)
+	if err != nil {
+		log.Fatal(err)
+	}
+	lowerBound := big.NewFloat(0)
+	// for i, b := range bytes {
+	// 	if b == 0 {
+	// 		bytes[i] = 1
+	// 	}
+	// 	if b == 1 {
+	// 		bytes[i] = 0
+	// 	}
+	// }
+	a, b := binaryToFloat(bytes)
+	a = big.NewFloat(0.0223388672)
+	b = big.NewFloat(0.0223388672)
+	fmt.Println(bytes, a, b)
+	// Initialize nodes and do a dummy update on a "0" bit
+	root := initializeNodes(0, uint8(0))
+	updateProb(root, uint8(0))
+	updateCount(root, uint8(0))
+
+	decfile, err := os.Create(op)
+	check(err)
+	w := bufio.NewWriter(decfile)
+
+	bitsfile, err := os.Create("bitsfile.txt")
+	check(err)
+	w2 := bufio.NewWriter(bitsfile)
+
+	decProbfile, err := os.Create("decprobs.txt")
+	check(err)
+	w3 := bufio.NewWriter(decProbfile)
+
+	counter := 0
+	for {
+		counter = counter + 1
+		if counter == 3 {
+			w.Flush()
+			w2.Flush()
+			w3.Flush()
+			os.Exit(0)
+		}
+		bits := byte(0)
+		for y := 0; y < 8; y++ {
+			bit := eval(lowerBound, root.p, a, b)
+			fmt.Fprintln(w2, bit)
+			fmt.Fprintln(w3, lowerBound, root.p)
+			if bit == 2 {
+				fmt.Println("EOF")
+				w.Flush()
+				w2.Flush()
+				os.Exit(0)
+			} else if bit == 1 {
+				bits = bits | uint8(1)
+				lowerBound.Add(lowerBound, root.p)
+			} else if bit == 3 {
+				fmt.Println("eval returned nobinary answer")
+				w.Flush()
+				w2.Flush()
+				os.Exit(1)
+			}
+			updateWin(bit)
+			updateProb(root, bit)
+			updateCount(root, window)
+			bits = bits << 1
+		}
+		fmt.Fprint(w, string(bits))
+
+		// I dont think I should have to scale the p values since p should decrease exponentially...
+
+	}
+
+	fmt.Print(bytes, lowerBound, a, b)
+
+	// Probably don't need to convert binary back to float
+
+	// have a string of bits. 1 tells you its above 0.5, 0 means below 0.5
+	// loop thru tree updates, where you take root.p and then see what will happen if you choose a 1 or a 0:
+	// case 1: only one of the choices keeps you in the interval defined by the bit (either the top or bottom half)
+	//     Choose that bit for the decoding output.
+	//     Move to the next bit of the encoded interval.
+	//     Adjust sizes (either make next encoded interval be half the length of the previous one, or make root.p interval double)
+	//         - (whatever you do, will need a variable that is maintained throughout loops to keep track of how much scaling is needed, since it will always be an additional factor of 2)
+	// case 2: both choices are within the interval
+	//     You are done encoding
+	// case 3: the interval overlaps both choices
+	//     Do procedure from "special case" op.
+	//     Need to expand the half
+
+	// decodedData := []byte{}
+	// scaler := 1
+	// bitIndex := 0
+	// for {
+	// 	byter := make([]uint8, 8)
+	// 	for i := range byter {
+	// 		switch {
+	// 		case condition:
+
+	// 		}
+	// 		byter[i] = ...
+
+	// 	}
+	// }
 
 }
 
-// func binaryToFloat(bc []uint8) (*float64, *float64) {
-// 	// neighbors := float64(1)
-// 	// ret := float64(0)
-// 	// for i, x := range bc {
-// 	// 	neighbors- math.Log(neighbors, float64(10))
-// 	// 	if x == 1 {
-// 	// 		ret.Add(ret, float64(math.Pow(2, -1.0*float64(i))))
-// 	// 	}
-// 	// }
-// 	// return ret, neighbors
-// 	a := float64(0)
-// 	b := float64(1)
-// 	for i, x := range bc {
-// 		if x == 0 {
-// 			b.Add(b, float64(-1*(math.Pow(2, float64(-(i+1))))))
-// 		} else {
-// 			a.Add(a, float64(math.Pow(2, float64(-(i+1)))))
-// 		}
-// 	}
-// 	return a, b
-// }
+func eval(l *big.Float, p *big.Float, a *big.Float, b *big.Float) uint8 {
+	h := big.NewFloat(0)
+	h.Add(l, p)
+	ret := uint8(3)
+	// if l.Cmp(a) >= 0 { //&& h.Cmp(b) < 0
+	// 	// EOF
+	// 	ret = 2
+	// } else ...
+	if h.Cmp(b) >= 0 {
+		ret = 1
+	} else if h.Cmp(a) < 0 {
+		ret = 0
+	} else {
+		//fmt.Printf("p: %v | a: %v | b: %v \n", p, a, b)
+		ret = 1 //3
+	}
+	fmt.Printf("lo: %-20v | hi: %-20v | a: %-20v | b: %-20v \n bit: %-20v \n", l, h, a, b, ret)
+	return ret
 
-// func Decode(fp string, op string) {
-// 	window = uint8(0)
-// 	bytes, err := os.ReadFile(fp)
-// 	if err != nil {
-// 		log.Fatal(err)
-// 	}
-// 	lowerBound := float64(0)
-// 	// for i, b := range bytes {
-// 	// 	if b == 0 {
-// 	// 		bytes[i] = 1
-// 	// 	}
-// 	// 	if b == 1 {
-// 	// 		bytes[i] = 0
-// 	// 	}
-// 	// }
-// 	a, b := binaryToFloat(bytes)
-// 	a = float64(0.0223388672)
-// 	b = float64(0.0223388672)
-// 	fmt.Println(bytes, a, b)
-// 	// Initialize nodes and do a dummy update on a "0" bit
-// 	root := initializeNodes(0, uint8(0))
-// 	updateProb(root, uint8(0))
-// 	updateCount(root, uint8(0))
-
-// 	decfile, err := os.Create(op)
-// 	check(err)
-// 	w := bufio.NewWriter(decfile)
-
-// 	bitsfile, err := os.Create("bitsfile.txt")
-// 	check(err)
-// 	w2 := bufio.NewWriter(bitsfile)
-
-// 	decProbfile, err := os.Create("decprobs.txt")
-// 	check(err)
-// 	w3 := bufio.NewWriter(decProbfile)
-
-// 	counter := 0
-// 	for {
-// 		counter = counter + 1
-// 		if counter == 3 {
-// 			w.Flush()
-// 			w2.Flush()
-// 			w3.Flush()
-// 			os.Exit(0)
-// 		}
-// 		bits := byte(0)
-// 		for y := 0; y < 8; y++ {
-// 			bit := eval(lowerBound, root.p, a, b)
-// 			fmt.Fprintln(w2, bit)
-// 			fmt.Fprintln(w3, lowerBound, root.p)
-// 			if bit == 2 {
-// 				fmt.Println("EOF")
-// 				w.Flush()
-// 				w2.Flush()
-// 				os.Exit(0)
-// 			} else if bit == 1 {
-// 				bits = bits | uint8(1)
-// 				lowerBound.Add(lowerBound, root.p)
-// 			} else if bit == 3 {
-// 				fmt.Println("eval returned nobinary answer")
-// 				w.Flush()
-// 				w2.Flush()
-// 				os.Exit(1)
-// 			}
-// 			updateWin(bit)
-// 			updateProb(root, bit)
-// 			updateCount(root, window)
-// 			bits = bits << 1
-// 		}
-// 		fmt.Fprint(w, string(bits))
-
-// 		// I dont think I should have to scale the p values since p should decrease exponentially...
-
-// 	}
-
-// 	fmt.Print(bytes, lowerBound, a, b)
-
-// 	// Probably don't need to convert binary back to float
-
-// 	// have a string of bits. 1 tells you its above 0.5, 0 means below 0.5
-// 	// loop thru tree updates, where you take root.p and then see what will happen if you choose a 1 or a 0:
-// 	// case 1: only one of the choices keeps you in the interval defined by the bit (either the top or bottom half)
-// 	//     Choose that bit for the decoding output.
-// 	//     Move to the next bit of the encoded interval.
-// 	//     Adjust sizes (either make next encoded interval be half the length of the previous one, or make root.p interval double)
-// 	//         - (whatever you do, will need a variable that is maintained throughout loops to keep track of how much scaling is needed, since it will always be an additional factor of 2)
-// 	// case 2: both choices are within the interval
-// 	//     You are done encoding
-// 	// case 3: the interval overlaps both choices
-// 	//     Do procedure from "special case" op.
-// 	//     Need to expand the half
-
-// 	// decodedData := []byte{}
-// 	// scaler := 1
-// 	// bitIndex := 0
-// 	// for {
-// 	// 	byter := make([]uint8, 8)
-// 	// 	for i := range byter {
-// 	// 		switch {
-// 	// 		case condition:
-
-// 	// 		}
-// 	// 		byter[i] = ...
-
-// 	// 	}
-// 	// }
-
-// }
-
-// func eval(l *float64, p *float64, a *float64, b *float64) uint8 {
-// 	h := float64(0)
-// 	h.Add(l, p)
-// 	ret := uint8(3)
-// 	// if l.Cmp(a) >= 0 { //&& h.Cmp(b) < 0
-// 	// 	// EOF
-// 	// 	ret = 2
-// 	// } else ...
-// 	if h.Cmp(b) >= 0 {
-// 		ret = 1
-// 	} else if h.Cmp(a) < 0 {
-// 		ret = 0
-// 	} else {
-// 		//fmt.Printf("p: %v | a: %v | b: %v \n", p, a, b)
-// 		ret = 1 //3
-// 	}
-// 	fmt.Printf("lo: %-20v | hi: %-20v | a: %-20v | b: %-20v \n bit: %-20v \n", l, h, a, b, ret)
-// 	return ret
-
-// }
+}
 
 //------------------------------------------
 //Bug Tests
