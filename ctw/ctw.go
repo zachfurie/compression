@@ -5,6 +5,7 @@ import (
 	ops "compression/ops"
 	"fmt"
 	"log"
+	"math"
 	"math/big"
 	"os"
 )
@@ -175,7 +176,7 @@ func Encode(fp string, op string) {
 		log.Fatal(err)
 	}
 
-	desiredLength := 1000
+	desiredLength := 2
 	if len(bytes) > desiredLength {
 		bytes = bytes[:desiredLength]
 	}
@@ -193,8 +194,6 @@ func Encode(fp string, op string) {
 	root := initializeNodes(0, uint8(0))
 	updateProb(root, uint8(0))
 	updateCount(root, uint8(0))
-
-	second_to_last_p := big.NewFloat(0)
 
 	probsfile, err := os.Create("probs.txt")
 	check(err)
@@ -214,26 +213,24 @@ func Encode(fp string, op string) {
 
 	for i, bt := range bytes {
 		bits := getBits(bt)
-		for j, bit := range bits {
-			updateWin(bit)
-			updateProb(root, bit)
-			updateCount(root, window)
-			lowerBound.Add(lowerBound, root.p)
+		for _, bit := range bits {
 			fmt.Fprintln(w, root.p)
 			fmt.Fprintln(w2, root.kt)
 			fmt.Fprintln(w3, lowerBound)
 			fmt.Fprintln(w4, big.NewInt(int64(bit)))
-			if i == length-1 && j == 6 {
-				second_to_last_p.Copy(root.p)
+
+			updateWin(bit)
+			updateProb(root, bit)
+			updateCount(root, window)
+			if bit == 1 {
+				lowerBound.Add(lowerBound, root.p)
 			}
-			// if i < 5 {
-			// 	fmt.Println(bit, root.c0, root.c1)
-			// }
 		}
-		if i%llength == 0 {
-			cnt := 5 * i / llength
-			fmt.Println(cnt, "%")
-		}
+		// if i%llength == 0 {
+		// 	cnt := 5 * i / llength
+		// 	fmt.Println(cnt, "%")
+		// }
+		fmt.Print(lowerBound, "      | .    ", i, llength) // remove this
 	}
 	fmt.Println(100, "%")
 	w.Flush()
@@ -274,6 +271,171 @@ func Encode(fp string, op string) {
 	binaryCode := ops.Binary_expansion(lowerBound, big.NewFloat(0).Add(lowerBound, root.p), []uint8{})
 	fmt.Println()
 	fmt.Println(binaryCode, len(binaryCode))
+	fmt.Println()
+	ret, n := binaryToFloat(binaryCode)
+	fmt.Println(ret, n)
+	os.WriteFile(op, binaryCode, os.ModeDevice)
+}
+
+func binaryToFloat(bc []uint8) (*big.Float, *big.Float) {
+	// neighbors := big.NewFloat(1)
+	// ret := big.NewFloat(0)
+	// for i, x := range bc {
+	// 	neighbors.Quo(neighbors, big.NewFloat(10))
+	// 	if x == 1 {
+	// 		ret.Add(ret, big.NewFloat(math.Pow(2, -1.0*float64(i))))
+	// 	}
+	// }
+	// return ret, neighbors
+	a := big.NewFloat(0)
+	b := big.NewFloat(1)
+	for i, x := range bc {
+		if x == 0 {
+			b.Add(b, big.NewFloat(-1*(math.Pow(2, float64(-(i+1))))))
+		} else {
+			a.Add(a, big.NewFloat(math.Pow(2, float64(-(i+1)))))
+		}
+	}
+	return a, b
+}
+
+func Decode(fp string, op string) {
+	window = uint8(0)
+	bytes, err := os.ReadFile(fp)
+	if err != nil {
+		log.Fatal(err)
+	}
+	lowerBound := big.NewFloat(0)
+	// for i, b := range bytes {
+	// 	if b == 0 {
+	// 		bytes[i] = 1
+	// 	}
+	// 	if b == 1 {
+	// 		bytes[i] = 0
+	// 	}
+	// }
+	a, b := binaryToFloat(bytes)
+	a = big.NewFloat(0.0223388672)
+	b = big.NewFloat(0.0223388672)
+	fmt.Println(bytes, a, b)
+	// Initialize nodes and do a dummy update on a "0" bit
+	root := initializeNodes(0, uint8(0))
+	updateProb(root, uint8(0))
+	updateCount(root, uint8(0))
+
+	updateProb(root, uint8(0))
+	updateCount(root, uint8(0))
+	updateProb(root, uint8(0))
+	updateCount(root, uint8(0))
+	updateProb(root, uint8(1))
+	updateCount(root, uint8(1))
+	lowerBound.Add(lowerBound, root.p)
+	updateProb(root, uint8(1))
+	updateCount(root, uint8(1))
+
+	decfile, err := os.Create(op)
+	check(err)
+	w := bufio.NewWriter(decfile)
+
+	bitsfile, err := os.Create("bitsfile.txt")
+	check(err)
+	w2 := bufio.NewWriter(bitsfile)
+
+	decProbfile, err := os.Create("decprobs.txt")
+	check(err)
+	w3 := bufio.NewWriter(decProbfile)
+
+	counter := 0
+	for {
+		counter = counter + 1
+		if counter == 3 {
+			w.Flush()
+			w2.Flush()
+			w3.Flush()
+			os.Exit(0)
+		}
+		bits := byte(0)
+		for y := 0; y < 8; y++ {
+			bit := eval(lowerBound, root.p, a, b)
+			fmt.Fprintln(w2, bit)
+			fmt.Fprintln(w3, lowerBound, root.p)
+			if bit == 2 {
+				fmt.Println("EOF")
+				w.Flush()
+				w2.Flush()
+				os.Exit(0)
+			} else if bit == 1 {
+				bits = bits | uint8(1)
+				lowerBound.Add(lowerBound, root.p)
+			} else if bit == 3 {
+				fmt.Println("eval returned nobinary answer")
+				w.Flush()
+				w2.Flush()
+				os.Exit(1)
+			}
+			updateWin(bit)
+			updateProb(root, bit)
+			updateCount(root, window)
+			bits = bits << 1
+		}
+		fmt.Fprint(w, string(bits))
+
+		// I dont think I should have to scale the p values since p should decrease exponentially...
+
+	}
+
+	fmt.Print(bytes, lowerBound, a, b)
+
+	// Probably don't need to convert binary back to float
+
+	// have a string of bits. 1 tells you its above 0.5, 0 means below 0.5
+	// loop thru tree updates, where you take root.p and then see what will happen if you choose a 1 or a 0:
+	// case 1: only one of the choices keeps you in the interval defined by the bit (either the top or bottom half)
+	//     Choose that bit for the decoding output.
+	//     Move to the next bit of the encoded interval.
+	//     Adjust sizes (either make next encoded interval be half the length of the previous one, or make root.p interval double)
+	//         - (whatever you do, will need a variable that is maintained throughout loops to keep track of how much scaling is needed, since it will always be an additional factor of 2)
+	// case 2: both choices are within the interval
+	//     You are done encoding
+	// case 3: the interval overlaps both choices
+	//     Do procedure from "special case" op.
+	//     Need to expand the half
+
+	// decodedData := []byte{}
+	// scaler := 1
+	// bitIndex := 0
+	// for {
+	// 	byter := make([]uint8, 8)
+	// 	for i := range byter {
+	// 		switch {
+	// 		case condition:
+
+	// 		}
+	// 		byter[i] = ...
+
+	// 	}
+	// }
+
+}
+
+func eval(l *big.Float, p *big.Float, a *big.Float, b *big.Float) uint8 {
+	h := big.NewFloat(0)
+	h.Add(l, p)
+	ret := uint8(3)
+	// if l.Cmp(a) >= 0 { //&& h.Cmp(b) < 0
+	// 	// EOF
+	// 	ret = 2
+	// } else ...
+	if h.Cmp(b) >= 0 {
+		ret = 0
+	} else if h.Cmp(a) < 0 {
+		ret = 1
+	} else {
+		//fmt.Printf("p: %v | a: %v | b: %v \n", p, a, b)
+		ret = 1 //3
+	}
+	fmt.Printf("lo: %-20v | hi: %-20v | a: %-20v | b: %-20v \n bit: %-20v \n", l, h, a, b, ret)
+	return ret
 }
 
 //------------------------------------------
