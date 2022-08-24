@@ -51,12 +51,6 @@ type node struct {
 	kt    *big.Float // Krichevsky–Trofimov estimate for p(x=0)
 } // In practice, probably don't need kt0 or kt1, but I have them there for now so I can graph them.
 
-// Inductive Loop:
-// Let x be the current bit
-// node.kt1 is the conditional probability P(x=1 | c0, c1)
-// node.p is the probability P(x=1, c0, c1) = P(x=1 | c0, c1) * P(c0,c1) = node.kt1 * P(c0,c1)
-// P(c0,c1) = P(x=1 | c0, c1 - 1) * P(c0,c1 - 1) OR P(x=0 | c0 - 1, c1) * P(c0 - 1,c1)
-
 // Error Check
 func check(err error) {
 	if err != nil {
