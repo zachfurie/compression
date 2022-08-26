@@ -1,4 +1,4 @@
-package ctw
+package ctw_log_backup
 
 import (
 	"bufio"
@@ -39,7 +39,6 @@ import (
 
 var Depth = 3
 var window = uint8(0)
-var mu = math.Pow(2, 63) / (math.Pow(2, 63) + 1)
 
 type node struct {
 	code  uint8
@@ -56,6 +55,20 @@ type node struct {
 func check(err error) {
 	if err != nil {
 		log.Fatal(err)
+	}
+}
+
+// logaddexp performs log(exp(x) + exp(y))
+func logaddexp(x, y float64) float64 {
+	tmp := x - y
+	if tmp > 0 {
+		return x + math.Log1p(math.Exp(-tmp))
+	} else if tmp <= 0 {
+		return y + math.Log1p(math.Exp(tmp))
+	} else {
+		// Nans, or infinities of the same sign involved
+		//log.Printf("logaddexp %f %f", x, y)
+		return x + y
 	}
 }
 
@@ -106,10 +119,10 @@ func getBitsReverse(bt byte) []uint8 {
 // Recursively update probabilities of all nodes by calling this func on the root node.
 func updateProb(n *node, update uint8) {
 	if update&uint8(1) == 0 {
-		n.kt = n.kt * mu * (2*n.c0 + 1) / (2 * (n.c0 + n.c1 + float64(1)))
+		n.kt += math.Log((n.c0 + float64(0.5))) - math.Log(n.c0+n.c1+float64(1))
 		n.c0 += 1
 	} else {
-		n.kt *= mu * (2*n.c1 + 1) / (2 * (n.c0 + n.c1 + float64(1)))
+		n.kt += math.Log((n.c1 + float64(0.5))) - math.Log(n.c0+n.c1+float64(1))
 		n.c1 += 1
 	}
 	if n.d == Depth {
@@ -123,7 +136,7 @@ func updateProb(n *node, update uint8) {
 			updateProb(n.left, newUpdate)
 		}
 		weight := 0.5
-		n.p = weight*n.kt + (1-weight)*n.left.p*n.right.p
+		n.p = logaddexp(math.Log(weight)+n.kt, math.Log(1-weight)+n.left.p+n.right.p)
 	}
 }
 
@@ -193,7 +206,7 @@ func Encode(fp string, op string) {
 		log.Fatal(err)
 	}
 
-	desiredLength := 1000
+	desiredLength := 100000
 	if len(bytes) > desiredLength {
 		bytes = bytes[:desiredLength]
 	}
@@ -205,12 +218,12 @@ func Encode(fp string, op string) {
 	// B( empty_sequence | window) := 0 , where B(x) = # of bits needed to encode x
 	// B is related to interval for window
 	// I'm guessing its needed for decoding
-	lowerBound := float64(0)
-	upperBound := float64(1)
+	lowerBound := float64(1)
+	upperBound := float64(255)
 
 	// Initialize nodes and do a dummy update on a "0" bit
 	root := initializeNodes(0, uint8(0))
-	updateProb(root, uint8(0))
+	//updateProb(root, uint8(0))
 
 	probsfile, err := os.Create("probs.txt")
 	check(err)
@@ -240,10 +253,10 @@ func Encode(fp string, op string) {
 			updateProb(root, window)
 			if bit == 0 {
 				//lowerBound = logaddexp(lowerBound, root.p*logaddexp(upperBound, lowerBound+math.Log(-1)))
-				lowerBound += root.p
+				lowerBound += -1 * root.p
 			} else if bit == 1 {
 				//upperBound = logaddexp(upperBound, math.Log(-1)+root.p*logaddexp(upperBound, lowerBound+math.Log(-1)))
-				upperBound -= root.p
+				upperBound += root.p
 
 			}
 			if i < 10 {
