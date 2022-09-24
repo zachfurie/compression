@@ -1,6 +1,8 @@
 
 # Learning compression in Go
 
+*Putting this project on hold during the school year.*
+
 I am learning compression algorithms and implementing them in Go. Suggestions are appreciated  : )
 
 **Status:**
@@ -14,5 +16,6 @@ I am learning compression algorithms and implementing them in Go. Suggestions ar
 **TODO:**
 * Get main.go file to be able to compare compression algs
 * Code a compression algorithm in Rust
+
 
 
